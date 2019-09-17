@@ -1,0 +1,124 @@
+/* 
+ * How this works:
+ * An image is inserted in your workbook. This is a tracking pixel that is a Google Analytics tracking URL. When a visitor visits the workbook an Event is recorded
+ * The script fetches All Events data from GA.
+ * To discern which ones are editors and which are viewers I chose this method because it is the least invasive for the user (eg. asking for permissions or doing some kind of action). 
+ * Upon opening the spreadsheet the script checks if the user is an editor. If the visitor is an editor a counter is increased. At the same time GA records an Event.
+ * 
+ * Assumptions: editors' emails are in the list of editors for the spreadsheet. Why? Accessing whether the user has editor permissions 
+ * requires the user to authorize the script to do so and I thought it would be too user unfriendly.
+ *
+ * Cautions: GA takes about 24 hours to start tracking. GA number should be greater than editor visit number. Each time mainGAFunction() is run by the time trigger
+ * it counts as an event
+ * Refreshes by an editor will increase the editor counter but not the number of unique events in GA
+ *
+ * Notes: Trying to tag the user as the Google Analytics pixel fired didn't work (Google Apps Script wouldn't let me execute code as the pixel loaded) 
+ *
+ * Instructions 
+ * Change VIEW_ID to your Google Analytics view id All Accounts -> choose your Analytics Account -> choose your Properties and Apps -> under All Website Data there is a number, that is your view id
+ */
+
+var dashboardSheet = "Visitor Data"; // Name of workbook used as the dashboard
+
+/* mainGAFunction() is how Sheets collects data from Google Analytics */
+function mainGAFunction() {
+  var response = get_ga();
+  var data = response['reports'][0]['data'];   //dimensions=[ga:eventCategory, ga:eventAction, ga:eventLabel, ga:dateHourMinute] eg. PDFURL Open, Subject, email address, time
+  var tempDataArray = [];
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Visitor Data");
+  var numberOfVisitors = data['totals'][0]['values'];
+
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName(dashboardSheet).getRange("I1").setValue(numberOfVisitors);
+}
+
+/* Gets Events from GA 
+ * Change variable start_date to whatever date you want to start tracking data
+ */
+function get_ga(){
+  var now = formatDateToGAFormat(new Date());
+  var ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(dashboardSheet);
+  var start = formatDateToGAFormat(new Date(ss.getRange("C1").getValue()));
+  var end = formatDateToGAFormat(new Date(ss.getRange("E1").getValue()));
+  var start_date= start;
+  var VIEW_ID = "123456789"; // Change this to your own Google Analytics view id
+  
+  if(start_date == "" || end == "") {
+    return;
+  }
+  
+  var request = {
+    "reportRequests":
+    [
+      {
+        "viewId": VIEW_ID,
+        "dateRanges": [{"startDate": start_date, "endDate": end}],
+        "metrics": [{"expression": "ga:totalEvents"}],
+        "dimensions": [{"name":"ga:eventCategory"}, {"name":"ga:eventAction"}, {"name":"ga:eventLabel"}, {"name":"ga:dateHourMinute"}]
+      }
+    ]
+  }
+
+  var response = AnalyticsReporting.Reports.batchGet(JSON.stringify(request));
+
+  return response;
+}
+
+function formatGADate(dateTimeString) {
+  //in the form of YYYMMDDHHMM MM in 24hr format eg. 201905171602
+  var year = dateTimeString.slice(0,4);
+  var month = dateTimeString.slice(4,6);
+  var day = dateTimeString.slice(6,8);
+  var hour = dateTimeString.slice(8,10);
+  var min = dateTimeString.slice(10,12);
+  var dateTime = new Date(year,month-1,day,hour,min,0,0); //year, month, day, hours, minutes, seconds, milliseconds
+  
+  return dateTime;  
+}
+
+/**
+ * Track Spreadsheet views with Google Analytics
+ *
+ * @param {string} gaaccount Google Analytics Account like UA-1234-56.
+ * @param {string} spreadsheet Name of the Google Spreadsheet.
+ * @param {string} sheetname Name of individual Google Sheet.
+ * @return The 1x1 tracking GIF image
+ * @customfunction
+ */
+function GOOGLEANALYTICS(gaaccount, spreadsheet, sheetname) {  
+  var imgURL = "https://ssl.google-analytics.com/collect?"
+    + "v=1&t=event"
+    + "&tid=" + gaaccount
+    + "&z="   + Math.round((new Date()).getTime()/1000).toString()
+    + "&cid=" + Utilities.getUuid()
+    + "&ec=" + encodeURIComponent("Spreadsheet Open") // Event Category
+    + "&ea=" + encodeURIComponent(spreadsheet) // Event Action
+    + "&el=" + encodeURIComponent(sheetname); // Event Label
+  
+  return imgURL;
+
+  /** 
+  * Written by Amit Agarwal 
+  * Web: www.ctrlq.org 
+  * Email: amit@labnol.org 
+  */
+
+}
+
+function formatDateToGAFormat(d){
+  var date = Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd");
+  
+  return date;
+}
+
+/* onOpen only runs for users with edit permission. A date stamp is left for each time an editor opens the spreadsheet */
+//function onOpen(e) {
+
+//}
+
+/*function timeTrigger() {
+  ScriptApp.newTrigger('mainGAFunction') 
+   .timeBased()
+   .inTimezone("America/New_York")
+   .everyMinutes(10)
+   .create();
+}*/
